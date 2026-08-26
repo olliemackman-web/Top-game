@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Ironvale — Village &amp; Siege</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%232c1d12'/%3E%3Cpath d='M3 9h10v5H3z' fill='%238d8a7e'/%3E%3Cpath d='M2 9l6-5 6 5z' fill='%2390392a'/%3E%3Crect x='7' y='11' width='2' height='3' fill='%235b3a1b'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <canvas id="game"></canvas>
+
+  <!-- top-left resource bar -->
+  <div id="topbar" class="panel">
+    <span class="res" title="Gold"><i class="ic gold"></i><b id="r-gold">0</b></span>
+    <span class="res" title="Wood"><i class="ic wood"></i><b id="r-wood">0</b></span>
+    <span class="res" title="Stone"><i class="ic stone"></i><b id="r-stone">0</b></span>
+    <span class="res" title="Food"><i class="ic food"></i><b id="r-food">0</b></span>
+    <span class="res" title="Population"><i class="ic pop"></i><b id="r-pop">0/0</b></span>
+  </div>
+
+  <!-- top-right wave clock -->
+  <div id="waveclock" class="panel">
+    <i class="ic skull"></i><b id="wave-label">Wave 1</b>
+  </div>
+
+  <!-- left quest / objective -->
+  <div id="questpanel" class="panel">
+    <div class="ph">Current Objective<span class="bang" id="quest-bang">!</span></div>
+    <div class="pb"><span class="chk" id="quest-chk"></span><span id="quest-text">Raise the Town Hall</span></div>
+    <div class="bar"><i id="quest-bar"></i></div>
+  </div>
+
+  <!-- right stat readout -->
+  <div id="statpanel" class="panel">
+    <div class="row"><i class="ic hp"></i><span id="s-hp-label">Town Hall</span></div>
+    <div class="bar hp"><i id="s-hp-bar"></i></div>
+    <div class="row"><i class="ic sword"></i><span id="s-army">Army 0</span></div>
+    <div class="bar"><i id="s-army-bar"></i></div>
+    <div class="row"><i class="ic skull"></i><span id="s-foes">Foes 0</span></div>
+    <div class="bar foe"><i id="s-foe-bar"></i></div>
+  </div>
+
+  <!-- scroll affordance -->
+  <button id="jump" class="jumpbtn">▲<span>Battlefield</span></button>
+
+  <!-- building upgrade sheet -->
+  <div id="buildpanel" class="panel sheet hidden">
+    <button id="bp-close" class="x">✕</button>
+    <div class="bp-head">
+      <canvas id="bp-icon" width="72" height="72"></canvas>
+      <div>
+        <h2 id="bp-name">Town Hall</h2>
+        <div class="tier" id="bp-tier">Level 1 · Tier I</div>
+        <p id="bp-blurb"></p>
+      </div>
+    </div>
+    <div class="bp-stats" id="bp-stats"></div>
+    <div class="bp-cost" id="bp-cost"></div>
+    <button id="bp-upgrade" class="cta">Upgrade</button>
+    <div class="bp-note" id="bp-note"></div>
+  </div>
+
+  <!-- bottom toolbar -->
+  <div id="toolbar">
+    <button data-tab="village"><i class="ic home"></i><span>Village</span></button>
+    <button data-tab="army"><i class="ic sword"></i><span>Army</span></button>
+    <button data-tab="log"><i class="ic scroll"></i><span>Log</span><span class="bang" id="log-bang">!</span></button>
+    <button data-tab="help"><i class="ic gear"></i><span>Help</span></button>
+  </div>
+
+  <!-- generic list sheet (army / log / help) -->
+  <div id="sheet" class="panel sheet hidden">
+    <button id="sh-close" class="x">✕</button>
+    <h2 id="sh-title">Army</h2>
+    <div id="sh-body"></div>
+  </div>
+
+  <!-- defeat -->
+  <div id="defeat" class="hidden">
+    <div class="panel sheet">
+      <h2>The village has fallen</h2>
+      <p id="df-text"></p>
+      <button id="df-btn" class="cta">Rebuild</button>
+    </div>
+  </div>
+
+  <div id="toasts"></div>
+</div>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
