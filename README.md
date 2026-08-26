@@ -37,7 +37,7 @@ A thatched timber hut becomes a stone hall, then a tiled and bannered one, then 
 gold-trimmed one — five distinct tiers of art per building, all drawn
 procedurally. A green chevron floats over anything you can currently afford.
 
-The **Town Hall** caps every other building at its own level + 1, so it is the
+The **Town Hall** caps every other building at its own level + 5, so it is the
 bottleneck you keep returning to. It is also the thing the horde is trying to
 smash: when its HP reaches zero the run ends, your buildings survive, and the
 waves restart from 1.
@@ -57,9 +57,13 @@ line north of the wall. Your levers are which buildings you feed:
 | Lumber Camp / Quarry / Market | Wood, stone and gold income |
 | Tavern | Population cap and a cut of all gold |
 
-Waves scale quadratically rather than exponentially, so late waves bite without
-the wall-clock blow-up that makes idle games unplayable around wave 40. An Ogre
-joins every fifth wave, and a second one every 25 waves after that.
+Waves scale quadratically through the first 30, so the early game stays readable,
+then pick up a mild exponential tail — troop power compounds with building levels,
+so without that an optimal player would simply never lose again. Your population
+is also capped at 160, which is what eventually lets the horde outgrow you. An
+Ogre joins every fifth wave, and a second one every 25 waves after that.
+
+![the front line](docs/battle.png)
 
 Progress saves to `localStorage` automatically. Resources accrue while you are
 away (capped at 8 hours), but waves only run while you are watching.
@@ -90,7 +94,11 @@ src/
 
 - **All balance lives in `src/config.js`.** Nothing else hardcodes a number.
   `waveHp` / `waveDmg` / `waveCount` are the difficulty curve; `costFor` and each
-  building's `base` + `mul` are the economy.
+  building's `base` + `mul` are the economy. The two dials that decide how the
+  whole game feels are `RATE_MUL` (how fast income compounds) and `TROOP_MUL`
+  (how fast army power compounds) — they are deliberately close to the buildings'
+  cost multipliers, which is what keeps payback time per level roughly flat.
+  `LATE_FROM` is where the exponential tail starts biting.
 - **Art is procedural, not sprite sheets.** `src/art/buildings.js` has one
   function per building that takes `(g, x, y, w, h, tier)` and composes walls,
   roofs, windows and trim from `prims.js`. That is what makes five visual tiers
@@ -113,6 +121,9 @@ src/
 
 - No prestige layer — a defeat restarts the waves but keeps everything, so very
   long runs eventually plateau against the wave curve.
+- The balance above was tuned against a scripted player (`IV.ff` plus `IV.upgrade`
+  in a loop): roughly wave 14 at 10 minutes, wave 37 and tier III at 30 minutes,
+  wave 78 and tier IV at 70 minutes, holding 60fps with 110+ troops on screen.
 - Troops have no formation or targeting orders; positioning is emergent.
 - No audio.
 - Enemy variety stops at five types; the wave table in `config.js` is where more

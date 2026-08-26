@@ -7,7 +7,7 @@ import { tickVillage, initVillage } from './sim/village.js';
 import { wireInput } from './input.js';
 import {
   wireUi, updateHud, toast, selectBuilding, closeBuilding, closeSheet,
-  getSelected, showDefeat, showOffline, setJumpLabel,
+  getSelected, showDefeat, showOffline, setJumpLabel, tryUpgrade,
 } from './ui.js';
 
 const canvas = document.getElementById('game');
@@ -85,7 +85,7 @@ if (!S.seenIntro) {
 
 // Debug handle — also handy for anyone poking at the game in devtools.
 window.IV = {
-  S, cam, api, save, camMax,
+  S, cam, api, save, camMax, upgrade: (id) => tryUpgrade(id, true),
   // Fast-forward the simulation in fixed steps (debugging / balance checks).
   ff(seconds, step = 0.05) {
     for (let t = 0; t < seconds; t += step) {

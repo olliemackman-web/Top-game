@@ -167,8 +167,10 @@ export function tickCombat(dt) {
     u.cd -= dt; u.flash = Math.max(0, u.flash - dt);
     u.retarget -= dt;
     if (u.retarget <= 0 || !u.target || u.target.hp <= 0) {
+      // mop-up: with nothing left to spawn, hunt the last foes wherever they are
+      const sight = (S.phase === 'assault' && !S.queue.length) ? 1e9 : 150;
       u.target = nearestIn(around(hFoes, u.x, u.y), u.x, u.y, 34) ||
-                 nearestIn(aliveFoes, u.x, u.y, 150);
+                 nearestIn(aliveFoes, u.x, u.y, sight);
       u.retarget = 0.3 + Math.random() * 0.2;
     }
     let gx, gy;
@@ -220,7 +222,7 @@ export function tickCombat(dt) {
     }
     let gx, gy, atHall = false;
     if (f.target) { gx = f.target.x; gy = f.target.y; }
-    else if (f.y < GATE_Y - 70 + (f.rally || 0)) { gx = f.spawnX; gy = GATE_Y - 70 + (f.rally || 0); }
+    else if (f.y < GATE_Y - 70 + (f.rally || 0)) { gx = f.spawnX; gy = GATE_Y - 40 + (f.rally || 0); }
     else if (f.y < GATE_Y + 8) { gx = GATE_X; gy = GATE_Y + 12; }        // funnel into the gate
     else { gx = HALL_PT.x; gy = HALL_PT.y; atHall = true; }
 

@@ -1,5 +1,5 @@
 import {
-  BUILDINGS, BY_ID, TROOPS, costFor, tierOf, SAVE_KEY, OFFLINE_CAP,
+  BUILDINGS, BY_ID, TROOPS, costFor, tierOf, SAVE_KEY, OFFLINE_CAP, rateFor,
 } from './config.js';
 
 export const S = {
@@ -33,11 +33,12 @@ export const lvl = (id) => S.lv[id] || 0;
 export const tier = (id) => tierOf(Math.max(1, lvl(id)));
 
 export const hallMax = () => Math.round(500 * Math.pow(1.38, Math.max(1, lvl('townhall')) - 1));
-export const popCap  = () => 10 + lvl('townhall') * 5 + lvl('tavern') * 4;
+export const POP_CEILING = 160;
+export const popCap  = () => Math.min(POP_CEILING, 10 + lvl('townhall') * 5 + lvl('tavern') * 4);
 export const popUsed = () => S.units.reduce((n, u) => n + (TROOPS[u.type]?.pop || 1), 0);
 
 // Max level any non-hall building may reach.
-export const levelCap = (id) => (id === 'townhall' ? Infinity : lvl('townhall') + 1);
+export const levelCap = (id) => (id === 'townhall' ? Infinity : lvl('townhall') + 5);
 
 export function reqMet(def) {
   if (!def.req) return true;
@@ -45,10 +46,10 @@ export function reqMet(def) {
 }
 
 export const income = () => ({
-  gold:  0.9  * Math.pow(1.3, lvl('market') - 1) * (1 + lvl('tavern') * 0.06),
-  wood:  0.7  * Math.pow(1.3, lvl('lumber') - 1),
-  stone: 0.4  * Math.pow(1.3, lvl('quarry') - 1),
-  food:  0.55 * Math.pow(1.3, lvl('farm')   - 1),
+  gold:  rateFor('gold',  lvl('market')) * goldMul(),
+  wood:  rateFor('wood',  lvl('lumber')),
+  stone: rateFor('stone', lvl('quarry')),
+  food:  rateFor('food',  lvl('farm')),
 });
 
 export const goldMul = () => 1 + lvl('tavern') * 0.06;
@@ -97,7 +98,7 @@ export function upgradeBlock(id) {
     const [k, v] = Object.entries(def.req)[0];
     return `Requires ${BY_ID[k].name} level ${v}`;
   }
-  if (lvl(id) >= levelCap(id)) return `Raise the Town Hall past level ${lvl('townhall')} first`;
+  if (lvl(id) >= levelCap(id)) return `Capped at Town Hall level + 5 — raise the Town Hall`;
   if (!canAfford(upgradeCost(id))) return 'Not enough resources';
   return null;
 }

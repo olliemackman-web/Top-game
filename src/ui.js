@@ -121,26 +121,30 @@ export function renderBuildPanel() {
     : `Level cap ${levelCap(selected) === Infinity ? '∞' : levelCap(selected)}`);
 }
 
-function doUpgrade() {
-  if (!selected) return;
-  const block = upgradeBlock(selected);
-  if (block) { toast(block, 'bad'); return; }
-  const cost = upgradeCost(selected);
-  if (!canAfford(cost)) return;
+// The single path an upgrade ever takes. Returns false if it was blocked.
+export function tryUpgrade(id, quiet = false) {
+  const block = upgradeBlock(id);
+  if (block) { if (!quiet) toast(block, 'bad'); return false; }
+  const cost = upgradeCost(id);
+  if (!canAfford(cost)) return false;
   pay(cost);
-  const before = tier(selected);
-  S.lv[selected] = lvl(selected) + 1;
-  const after = tier(selected);
-  const def = BY_ID[selected];
+  const before = tier(id);
+  S.lv[id] = lvl(id) + 1;
+  const after = tier(id);
+  const def = BY_ID[id];
   if (after !== before) {
-    toast(`${def.name} rebuilt — Tier ${ROMAN[after]}`, 'good');
+    if (!quiet) toast(`${def.name} rebuilt — Tier ${ROMAN[after]}`, 'good');
     logLine(`${def.name} rebuilt to Tier ${ROMAN[after]}.`);
   } else {
-    logLine(`${def.name} upgraded to level ${lvl(selected)}.`);
+    logLine(`${def.name} upgraded to level ${lvl(id)}.`);
   }
-  if (selected === 'townhall') S.hallHp = Math.min(hallMax(), S.hallHp + hallMax() * 0.25);
-  renderBuildPanel();
-  save();
+  if (id === 'townhall') S.hallHp = Math.min(hallMax(), S.hallHp + hallMax() * 0.25);
+  return true;
+}
+
+function doUpgrade() {
+  if (!selected) return;
+  if (tryUpgrade(selected)) { renderBuildPanel(); save(); }
 }
 
 // ---------------------------------------------------------------------------
