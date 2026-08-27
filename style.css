@@ -87,18 +87,6 @@ body{
 #statpanel .row{display:flex;align-items:center;gap:7px;font-size:14px;color:#fff;margin-top:6px}
 #statpanel .row:first-child{margin-top:0}
 
-/* ---------- jump button ---------- */
-.jumpbtn{
-  position:absolute;top:50%;left:50%;transform:translateX(-50%);
-  background:linear-gradient(#3d2919,#2c1d12);color:var(--tan);
-  border:3px solid var(--edge2);outline:2px solid var(--ink);border-radius:4px;
-  font-family:inherit;font-size:15px;padding:6px 14px;cursor:pointer;
-  display:flex;align-items:center;gap:8px;
-  box-shadow:0 3px 0 rgba(0,0,0,.45);
-}
-.jumpbtn:hover{background:linear-gradient(#4d3520,#372213);color:#fff}
-.jumpbtn:active{transform:translateX(-50%) translateY(2px);box-shadow:0 1px 0 rgba(0,0,0,.45)}
-
 /* ---------- toolbar ---------- */
 #toolbar{
   position:absolute;bottom:10px;left:50%;transform:translateX(-50%);
@@ -196,5 +184,4 @@ body{
   #topbar{gap:9px;font-size:13px;padding:5px 7px}
   .res{font-size:13px}
   #toolbar button{min-width:54px;font-size:11px;padding:6px 8px 4px}
-  .jumpbtn span{display:none}
 }

@@ -54,10 +54,12 @@ function checkObjective() {
 
 // ---------------------------------------------------------------------------
 export function toast(text, kind = '') {
+  const host = $('toasts');
   const el = document.createElement('div');
   el.className = 'toast ' + kind;
   el.textContent = text;
-  $('toasts').appendChild(el);
+  host.appendChild(el);
+  while (host.children.length > 4) host.firstChild.remove();
   setTimeout(() => el.remove(), 2900);
 }
 
@@ -201,8 +203,11 @@ function helpSheet() {
   <p><b>Ironvale</b> is a village that has to feed, arm and outlast an endless horde.
   The valley runs north–south: your village sits at the bottom, the horde comes from the top.</p>
   <h3>Getting around</h3>
-  <p>Drag the map, scroll the wheel, or press <kbd>W</kbd>/<kbd>S</kbd> and the arrow keys.
-  <kbd>Space</kbd> snaps between the village and the front line — or use the button in the middle of the screen.</p>
+  <p><b>Drag</b> the map to pan it. <b>Scroll the wheel</b> to zoom toward your cursor, or
+  <b>pinch</b> on a touchscreen. <kbd>+</kbd> and <kbd>−</kbd> zoom too, and <kbd>0</kbd> resets
+  to the default framing.</p>
+  <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or the arrow keys pan, <kbd>Shift</kbd>+wheel
+  scrolls without zooming, and <kbd>Space</kbd> snaps between the village and the front line.</p>
   <h3>Building</h3>
   <p>Click any building to open it. Every building has unlimited levels, and <b>rebuilds its
   architecture every 5 levels</b> — a thatched hut becomes a stone hall, then a tiled and
@@ -315,10 +320,4 @@ export function wireUi(api) {
       refreshSheetCanvases();
     };
   }
-  $('jump').onclick = () => api.toggleView();
-}
-
-export function setJumpLabel(toBattle) {
-  const b = $('jump');
-  b.innerHTML = toBattle ? '▲<span>Battlefield</span>' : '▼<span>Village</span>';
 }

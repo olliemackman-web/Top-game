@@ -1,7 +1,10 @@
-import { r, box, mkPix, M, pine, rock, bush, fenceRun, barrel, crate, logPile } from './prims.js';
-import { WORLD, GATE_Y, GATE_X, BUILDINGS } from '../config.js';
+import {
+  r, box, mkPix, M, rock, bush, fenceRun, barrel, crate, logPile,
+  makeNoise, mixHex, ramp, rgbOf, contactShadow, treePine, treeOak, treeDead,
+} from './prims.js';
+import { WORLD, GATE_Y, GATE_X, BUILDINGS, TERRAIN_PAD as PAD } from '../config.js';
 
-// Deterministic RNG so the valley is the same every session.
+// Deterministic RNG so the valley is identical every session.
 function mulberry32(a) {
   return function () {
     a |= 0; a = (a + 0x6D2B79F5) | 0;
@@ -11,79 +14,120 @@ function mulberry32(a) {
   };
 }
 
-const hex = (s) => [parseInt(s.slice(1, 3), 16), parseInt(s.slice(3, 5), 16), parseInt(s.slice(5, 7), 16)];
-const mix = (a, b, t) => {
-  const A = hex(a), B = hex(b);
-  const c = A.map((v, i) => Math.round(v + (B[i] - v) * t));
-  return '#' + c.map(v => v.toString(16).padStart(2, '0')).join('');
-};
+// Grass ramps. The land is scorched at the front line and lush behind the wall,
+// so the ramp itself is blended by latitude rather than just darkened.
+const WAR   = ['#3a3a2c', '#474734', '#55523d', '#615c46'];
+const WILD  = ['#3f5c28', '#4a6d2d', '#5a8137', '#6b9440'];
+const LUSH  = ['#42662a', '#517532', '#66913f', '#7fae52'];
 
-// The land grows greener the further south you go: scorched at the front line,
-// lush and mown inside the palisade.
-function landAt(y) {
-  const t = Math.max(0, Math.min(1, (y - 40) / (GATE_Y - 40)));
-  const lush = Math.max(0, Math.min(1, (y - GATE_Y + 60) / 120));
-  return {
-    base:  mix(mix('#4a4736', '#5d8038', t), '#66913f', lush),
-    dark:  mix(mix('#3b3a2c', '#4b6a2c', t), '#517532', lush),
-    light: mix(mix('#5c5844', '#6f9647', t), '#7fae52', lush),
-  };
+function rampAt(y) {
+  const t = Math.max(0, Math.min(1, (y - 30) / (GATE_Y - 90)));
+  const lush = Math.max(0, Math.min(1, (y - GATE_Y + 70) / 130));
+  return WAR.map((c, i) => mixHex(mixHex(c, WILD[i], t), LUSH[i], lush));
 }
 
-// Rectangles that terrain scatter must avoid.
+// Footprints terrain scatter must avoid.
 function keepOut() {
-  const out = BUILDINGS.map(b => ({ x: b.x - 4, y: b.y - 4, w: b.w + 8, h: b.h + 8 }));
-  out.push({ x: GATE_X - 26, y: 0, w: 52, h: WORLD.H });                 // the main road
-  out.push({ x: 0, y: GATE_Y - 12, w: WORLD.W, h: 20 });                 // the palisade
-  out.push({ x: 0, y: 736, w: WORLD.W, h: 22 });                         // village cross-street
+  const out = BUILDINGS.map(b => ({ x: b.x - 5, y: b.y - 5, w: b.w + 10, h: b.h + 10 }));
+  out.push({ x: GATE_X - 27, y: 0, w: 54, h: WORLD.H });      // the great north road
+  out.push({ x: 0, y: GATE_Y - 14, w: WORLD.W, h: 24 });      // the palisade
+  out.push({ x: 0, y: 734, w: WORLD.W, h: 26 });              // village cross-street
   return out;
 }
-const hits = (zones, x, y, w = 8, h = 8) =>
-  zones.some(z => x + w > z.x && x < z.x + z.w && y + h > z.y && y < z.y + z.h);
+const hits = (z, x, y, w = 8, h = 8) =>
+  z.some(o => x + w > o.x && x < o.x + o.w && y + h > o.y && y < o.y + o.h);
 
 // ---------------------------------------------------------------------------
-export function buildTerrain(seed = 20260826) {
-  const { c, g } = mkPix(WORLD.W, WORLD.H);
+export function buildTerrain(seed = 20260827) {
+  const { c, g } = mkPix(WORLD.W + PAD * 2, WORLD.H);
+  g.translate(PAD, 0);
   return paint(c, g, mulberry32(seed));
 }
 
 function paint(c, g, rnd) {
   const W = WORLD.W, H = WORLD.H;
+  const TW = W + PAD * 2;
+  const coarse = makeNoise(rnd, 46, TW, H, PAD);
+  const fine   = makeNoise(rnd, 11, TW, H, PAD);
+  const grain  = makeNoise(rnd, 3,  TW, H, PAD);
 
-  // --- ground bands -------------------------------------------------------
+  // Ground and mountains are painted straight into an ImageData. Doing this with
+  // per-pixel fillRect and hex-string colour mixing cost ~14s of load; tabulated
+  // colours plus one putImageData bring it under a second.
+  const BANDS = 56, STEPS = 28;
+  const grassLut = new Uint8Array(BANDS * STEPS * 3);
+  for (let bi = 0; bi < BANDS; bi++) {
+    const R = rampAt((bi + 0.5) * H / BANDS);
+    for (let si = 0; si < STEPS; si++) {
+      const [cr, cg, cb] = rgbOf(ramp(R, si / (STEPS - 1)));
+      const o = (bi * STEPS + si) * 3;
+      grassLut[o] = cr; grassLut[o + 1] = cg; grassLut[o + 2] = cb;
+    }
+  }
+  const VSTEP = 28, NSTEP = 10;
+  const rockLut = new Uint8Array(VSTEP * NSTEP * 3);
+  for (let vi = 0; vi < VSTEP; vi++) {
+    for (let ni = 0; ni < NSTEP; ni++) {
+      const base = mixHex('#33322e', '#cbc8bb', vi / (VSTEP - 1));
+      const [cr, cg, cb] = rgbOf(mixHex(base, '#8d97a8', (1 - ni / (NSTEP - 1)) * 0.38));
+      const o = (vi * NSTEP + ni) * 3;
+      rockLut[o] = cr; rockLut[o + 1] = cg; rockLut[o + 2] = cb;
+    }
+  }
+
+  const img = g.createImageData(TW, H);
+  const px = img.data;
+  const ridgeOf = mountainProfile();
   for (let y = 0; y < H; y++) {
-    r(g, 0, y, W, 1, landAt(y).base);
+    const band = Math.min(BANDS - 1, (y * BANDS / H) | 0) * STEPS;
+    const rowL = ridgeOf('L', y), rowR = ridgeOf('R', y);
+    for (let wx = -PAD; wx < W + PAD; wx++) {
+      const o = (y * TW + (wx + PAD)) * 4;
+      let cr, cg2, cb;
+      const inL = wx < rowL.edge, inR = wx > W - 1 - rowR.edge;
+      if (inL || inR) {
+        const rw = inL ? rowL : rowR;
+        const i = inL ? wx : W - 1 - wx;
+        const v = rw.shadeAt(i);
+        const near = Math.min(0.9999, Math.max(0, (i + PAD) / (rw.edge + PAD)));
+        const q = ((Math.min(0.9999, Math.max(0, v)) * VSTEP) | 0) * NSTEP + ((near * NSTEP) | 0);
+        const l = q * 3;
+        cr = rockLut[l]; cg2 = rockLut[l + 1]; cb = rockLut[l + 2];
+      } else {
+        const n = coarse(wx, y) * 0.55 + fine(wx, y) * 0.31 + grain(wx, y) * 0.14;
+        const l = (band + Math.min(STEPS - 1, (n * STEPS) | 0)) * 3;
+        cr = grassLut[l]; cg2 = grassLut[l + 1]; cb = grassLut[l + 2];
+      }
+      px[o] = cr; px[o + 1] = cg2; px[o + 2] = cb; px[o + 3] = 255;
+    }
   }
-  // speckle texture
-  for (let i = 0; i < 9000; i++) {
-    const x = Math.floor(rnd() * W), y = Math.floor(rnd() * H);
-    const L = landAt(y);
-    r(g, x, y, 1 + (rnd() < 0.2 ? 1 : 0), 1, rnd() < 0.5 ? L.dark : L.light);
-  }
-  // tufts of grass
-  for (let i = 0; i < 3000; i++) {
-    const x = Math.floor(rnd() * W), y = Math.floor(rnd() * H);
-    const L = landAt(y);
-    r(g, x, y, 1, 2, L.dark);
-    r(g, x + 1, y + 1, 1, 1, L.light);
+  g.putImageData(img, 0, 0);   // putImageData ignores the translate, so origin is 0
+
+  // grass tufts, denser where the noise is already light
+  for (let i = 0; i < 5200; i++) {
+    const x = Math.floor(rnd() * (W + 60)) - 30, y = Math.floor(rnd() * H);
+    const R = rampAt(y);
+    const n = coarse(x, y) * 0.6 + fine(x, y) * 0.4;
+    if (rnd() > 0.3 + n * 0.6) continue;
+    r(g, x, y, 1, 2, ramp(R, n - 0.3));
+    r(g, x + 1, y + 1, 1, 1, ramp(R, n + 0.35));
+    if (rnd() < 0.3) r(g, x - 1, y + 1, 1, 1, ramp(R, n - 0.15));
   }
 
-  // --- battlefield scarring (north end) ----------------------------------
-  for (let i = 0; i < 70; i++) {
-    const cx = 34 + Math.floor(rnd() * (W - 68));
-    const cy = Math.floor(rnd() * 380);
-    const rw = 4 + Math.floor(rnd() * 8), rh = 2 + Math.floor(rnd() * 4);
+  // --- battlefield scarring ----------------------------------------------
+  for (let i = 0; i < 74; i++) {
+    const cx = 30 + Math.floor(rnd() * (W - 60)), cy = Math.floor(rnd() * 390);
+    const rw = 4 + Math.floor(rnd() * 9), rh = 2 + Math.floor(rnd() * 4);
     for (let dy = -rh; dy <= rh; dy++) {
       const k = Math.sqrt(Math.max(0, 1 - (dy * dy) / (rh * rh + 0.01)));
-      const half = Math.round(rw * k * (0.75 + rnd() * 0.5));
+      const half = Math.round(rw * k * (0.72 + rnd() * 0.55));
       if (half <= 0) continue;
-      r(g, cx - half, cy + dy, half * 2, 1, dy < 0 ? '#4a3b28' : '#3b2f1f');
+      r(g, cx - half, cy + dy, half * 2, 1, dy < 0 ? '#4a3b28' : '#372c1d');
     }
-    r(g, cx - rw, cy - rh, rw * 2, 1, '#5c4a32');
+    r(g, cx - rw, cy - rh, rw * 2, 1, '#5e4b33');
   }
-  // scattered bones and broken spears
-  for (let i = 0; i < 46; i++) {
-    const x = 26 + Math.floor(rnd() * (W - 52)), y = Math.floor(rnd() * 410);
+  for (let i = 0; i < 50; i++) {
+    const x = 24 + Math.floor(rnd() * (W - 48)), y = Math.floor(rnd() * 420);
     if (Math.abs(x - GATE_X) < 22) continue;
     if (rnd() < 0.5) {
       r(g, x, y, 4, 1, '#cfc7b2'); r(g, x, y - 1, 1, 1, '#cfc7b2'); r(g, x + 3, y + 1, 1, 1, '#cfc7b2');
@@ -91,150 +135,137 @@ function paint(c, g, rnd) {
       r(g, x, y - 5, 1, 6, '#6f4a24'); r(g, x, y - 7, 1, 2, '#a9b0b8');
     }
   }
-  // the horde's staging ground: skull totems and cold fires along the top
-  for (let i = 0; i < 9; i++) {
-    const x = 42 + Math.floor(rnd() * (W - 84));
-    const y = 18 + Math.floor(rnd() * 80);
+  // the horde's staging ground
+  for (let i = 0; i < 10; i++) {
+    const x = 40 + Math.floor(rnd() * (W - 80)), y = 16 + Math.floor(rnd() * 84);
     if (Math.abs(x - GATE_X) < 18) continue;
-    if (rnd() < 0.55) {                       // totem
+    if (rnd() < 0.55) {
+      contactShadow(g, x + 1, y + 1, 4, 0.3);
       r(g, x, y - 12, 2, 13, '#4a3320');
-      r(g, x - 2, y - 16, 6, 5, '#d8d2c0');
+      r(g, x - 2, y - 17, 6, 5, '#d8d2c0');
+      r(g, x - 2, y - 17, 6, 1, '#f0ebdc');
       r(g, x - 1, y - 15, 1, 2, '#2a2018'); r(g, x + 2, y - 15, 1, 2, '#2a2018');
-      r(g, x - 2, y - 11, 6, 1, '#2a2018');
-      r(g, x - 4, y - 13, 2, 1, '#98291a'); r(g, x + 4, y - 13, 2, 1, '#98291a');
-    } else {                                   // burnt-out fire ring
-      for (let a = 0; a < 7; a++) {
-        const ax = x + Math.round(Math.cos(a / 7 * 6.28) * 5);
-        const ay = y + Math.round(Math.sin(a / 7 * 6.28) * 3);
-        r(g, ax, ay, 2, 2, '#6e6b62');
+      r(g, x - 2, y - 12, 6, 1, '#2a2018');
+      r(g, x - 4, y - 14, 2, 1, '#98291a'); r(g, x + 4, y - 14, 2, 1, '#98291a');
+    } else {
+      for (let a = 0; a < 8; a++) {
+        r(g, x + Math.round(Math.cos(a / 8 * 6.28) * 5), y + Math.round(Math.sin(a / 8 * 6.28) * 3), 2, 2, '#6e6b62');
       }
       r(g, x - 2, y - 1, 4, 2, '#241a12');
       r(g, x - 1, y, 2, 1, '#5c3a1a');
     }
   }
 
-  // --- roads --------------------------------------------------------------
-  const road = (x, y, w, h) => {
-    r(g, x, y, w, h, M.dirt.mid);
-    for (let i = 0; i < w * h * 0.09; i++) {
+  // --- roads: worn centre, rutted, stones and puddles ---------------------
+  const road = (x, y, w, h, vertical) => {
+    const dirt = makeNoise(rnd, 9, w + 4, h + 4, -x, -y);
+    for (let j = 0; j < h; j++) {
+      for (let i = 0; i < w; i++) {
+        const across = vertical ? i / w : j / h;
+        const edge = Math.abs(across - 0.5) * 2;             // 0 centre, 1 verge
+        const n = dirt(x + i, y + j);
+        // packed and pale down the middle, damper and darker at the verge
+        const t = 0.62 - edge * 0.42 + n * 0.34;
+        r(g, x + i, y + j, 1, 1, ramp(['#5c4529', '#75593a', '#8f7049', '#a5865c'], t));
+      }
+    }
+    // cart ruts
+    for (const off of [0.34, 0.66]) {
+      for (let j = 0; j < (vertical ? h : w); j += 1) {
+        if (rnd() < 0.25) continue;
+        const px = vertical ? x + Math.round(w * off) : x + j;
+        const py = vertical ? y + j : y + Math.round(h * off);
+        r(g, px, py, vertical ? 2 : 1, vertical ? 1 : 2, '#5c4529');
+      }
+    }
+    // grit and the odd puddle
+    for (let i = 0; i < w * h * 0.012; i++) {
       const px = x + Math.floor(rnd() * w), py = y + Math.floor(rnd() * h);
-      r(g, px, py, 1, 1, rnd() < 0.5 ? M.dirt.lo : M.dirt.hi);
+      if (rnd() < 0.22) { r(g, px, py, 3, 2, '#4a4433'); r(g, px, py, 3, 1, '#6b6754'); }
+      else r(g, px, py, 1, 1, rnd() < 0.5 ? '#4f3d24' : '#b39a70');
     }
-    // soft, ragged edges
-    for (let i = 0; i < h; i += 2) {
-      r(g, x - 1 + Math.floor(rnd() * 2), y + i, 1, 2, M.dirt.lo);
-      r(g, x + w - 1 + Math.floor(rnd() * 2), y + i, 1, 2, M.dirt.lo);
-    }
-  };
-  road(GATE_X - 11, 0, 22, H - 40);              // the great north road
-  road(0, 738, W, 18);                            // village cross-street
-  road(96, 730, 12, 60);                          // spur to the smithy/mill
-  road(292, 728, 10, 130);                        // spur to the range/quarry
-
-  // --- mountains down both flanks ----------------------------------------
-  // A heightmap wall: two sine octaves give an organic, non-repeating ridge.
-  const ridge = (side) => {
-    const ph = side === 'L' ? 0 : 2.7;
-    const ext = (y) => 20
-      + Math.sin(y * 0.021 + ph) * 11
-      + Math.sin(y * 0.053 + ph * 2.1) * 6
-      + Math.sin(y * 0.011 + ph * 0.6) * 8;
-
-    for (let y = 0; y < H; y++) {
-      const e = Math.max(6, Math.round(ext(y)));
-      // is this row a local peak? only those get a lit rim and snow
-      const peaky = ext(y) - Math.max(ext(y - 7), ext(y + 7));
-
-      for (let i = 0; i < e; i++) {
-        const t = i / e;                          // 0 = screen edge, 1 = inner rim
-        const x = side === 'L' ? i : W - 1 - i;
-        const shade = side === 'L' ? 0.22 + t * 0.62 : 0.80 - t * 0.50;
-        // crags: coarse vertical banding so the mass isn't a flat gradient
-        const crag = Math.sin(y * 0.31 + i * 0.9 + ph) * 0.09
-                   + Math.sin(y * 0.07 + i * 2.3) * 0.06;
-        r(g, x, y, 1, 1, mix('#43413a', '#9d9a8e', Math.max(0, Math.min(1, shade + crag))));
+    // ragged verge blending into grass
+    for (let j = 0; j < (vertical ? h : w); j += 2) {
+      const py = vertical ? y + j : y + Math.round(h * rnd());
+      const px = vertical ? x : x + j;
+      const verge = rnd() < 0.5 ? '#6a5637' : '#5f6b3a';   // earth blending to grass
+      if (vertical) {
+        r(g, px - 1 + Math.floor(rnd() * 2), py, 1, 2, verge);
+        r(g, px + w - 1 + Math.floor(rnd() * 2), py, 1, 2, verge);
+      } else {
+        r(g, px, y - 1 + Math.floor(rnd() * 2), 2, 1, verge);
+        r(g, px, y + h - 1 + Math.floor(rnd() * 2), 2, 1, verge);
       }
-      // rim: close to the rock, and only where the ridge actually rises
-      if (peaky > -3) {
-        const rx = side === 'L' ? e - 1 : W - e;
-        r(g, rx, y, 1, 1, peaky > 1 ? '#b6b3a6' : '#8f8c81');
-      }
-      // snow only on genuine high shoulders
-      if (e > 30 && peaky > 0.5) {
-        const cap = Math.min(3, e - 28);
-        for (let i = 0; i < cap; i++) {
-          const x = side === 'L' ? e - 1 - i : W - e + i;
-          r(g, x, y, 1, 1, i === 0 ? '#e8e6dd' : '#c9c6bb');
-        }
-      }
-      // shadow cast onto the grass
-      const sx = side === 'L' ? e : W - 1 - e;
-      g.globalAlpha = 0.28;
-      r(g, sx, y, side === 'L' ? 3 : -3, 1, '#2b3320');
-      g.globalAlpha = 1;
-      // occasional boulder spilled at the foot
-      if (rnd() < 0.012) r(g, side === 'L' ? e + 1 : W - e - 3, y, 3, 2, '#6e6b62');
     }
   };
-  ridge('L'); ridge('R');
+  road(GATE_X - 11, 0, 22, H - 36, true);
+  road(0, 738, W, 18, false);
+  road(96, 730, 12, 62, true);
+  road(292, 728, 10, 132, true);
+
+  // --- mountains: a rock band with real crests, not a gradient ------------
+  mountains(g, rnd, 'L');
+  mountains(g, rnd, 'R');
 
   // --- palisade + gate ----------------------------------------------------
   const py = GATE_Y - 10;
   for (let x = 0; x < W; x += 4) {
     if (Math.abs(x - GATE_X) < 15) continue;
+    contactShadow(g, x + 2, py + 13, 3, 0.3);
     r(g, x, py, 4, 12, M.wood2.mid);
     r(g, x, py, 1, 12, M.wood2.hi);
     r(g, x + 3, py, 1, 12, M.wood2.lo);
-    r(g, x + 1, py - 2, 2, 3, M.wood2.mid);      // sharpened tip
+    r(g, x + 1, py - 2, 2, 3, M.wood2.mid);
     r(g, x + 1, py - 2, 1, 3, M.wood2.hi);
     box(g, x, py - 2, 4, 14, M.wood2.out);
   }
-  // gate towers either side of the opening
   for (const gx of [GATE_X - 22, GATE_X + 15]) {
+    contactShadow(g, gx + 4, py + 13, 5, 0.32);
     r(g, gx, py - 8, 8, 20, M.stone.mid);
     r(g, gx, py - 8, 8, 1, M.stone.hi);
+    r(g, gx, py - 8, 1, 20, M.stone.hi);
+    r(g, gx + 7, py - 8, 1, 20, M.stone.lo);
     for (let i = 0; i < 3; i++) r(g, gx + i * 3, py - 11, 2, 3, M.stone2.mid);
     box(g, gx, py - 11, 8, 23, M.stone.out);
   }
-  // gate arch beam
   r(g, GATE_X - 15, py - 6, 30, 4, M.wood2.mid);
   r(g, GATE_X - 15, py - 6, 30, 1, M.wood2.hi);
   box(g, GATE_X - 15, py - 6, 30, 4, M.wood2.out);
 
-  // --- village fences and paddocks ---------------------------------------
-  fenceRun(g, 12, 742, 74);        // farm paddock
-  fenceRun(g, 262, 906, 78);       // quarry yard
+  fenceRun(g, 12, 742, 74);
+  fenceRun(g, 262, 906, 78);
   const zones = keepOut();
 
-  // --- trees, rocks, shrubs ----------------------------------------------
-  for (let i = 0; i < 340; i++) {
-    const x = Math.floor(rnd() * (W - 24)) + 12;
+  // --- woodland -----------------------------------------------------------
+  for (let i = 0; i < 460; i++) {
+    const x = Math.floor(rnd() * (W + 40)) - 20;
     const y = Math.floor(rnd() * (H - 30)) + 18;
-    if (hits(zones, x - 6, y - 16, 16, 20)) continue;
-    // density: thick at the flanks, sparse in the open middle and the village
-    const edge = Math.min(x, W - x) / (W / 2);
+    if (hits(zones, x - 7, y - 18, 18, 22)) continue;
+    const edge = Math.min(Math.max(x, 0), W - x) / (W / 2);
     const inVillage = y > GATE_Y;
-    const p = (1 - edge) * 0.9 + 0.12 + (inVillage ? -0.25 : 0);
+    const p = (1 - edge) * 0.85 + 0.14 + (inVillage ? -0.28 : 0);
     if (rnd() > p) continue;
-    const scorch = y < 340 && rnd() < 0.45;
-    if (scorch) {                       // burnt stump on the battlefield
-      r(g, x + 3, y - 6, 3, 6, '#3b2f1f');
-      r(g, x + 2, y - 8, 2, 3, '#3b2f1f');
-      r(g, x + 6, y - 9, 2, 4, '#3b2f1f');
-    } else {
-      pine(g, x, y, 0.8 + rnd() * 0.5);
+    const s = 0.75 + rnd() * 0.55;
+    if (y < 350 && rnd() < 0.5) treeDead(g, x, y, s);
+    else if (rnd() < 0.66) treePine(g, x, y, s, rnd);
+    else treeOak(g, x, y, s);
+  }
+  for (let i = 0; i < 110; i++) {
+    const x = Math.floor(rnd() * (W - 18)) + 9, y = Math.floor(rnd() * (H - 20)) + 10;
+    if (hits(zones, x, y - 8, 11, 11)) continue;
+    if (rnd() < 0.5) rock(g, x, y, 0.7 + rnd() * 0.85); else bush(g, x, y);
+  }
+  // wildflowers grow in patches, not evenly scattered like confetti
+  for (let p = 0; p < 16; p++) {
+    const px = 20 + Math.floor(rnd() * (W - 40));
+    const py = GATE_Y + 20 + Math.floor(rnd() * (H - GATE_Y - 40));
+    const c1 = ['#d8b45a', '#e6e0cc', '#c26a52', '#9d78bd'][Math.floor(rnd() * 4)];
+    for (let i = 0; i < 6 + rnd() * 7; i++) {
+      const x = px + Math.round((rnd() - 0.5) * 22), y = py + Math.round((rnd() - 0.5) * 14);
+      if (hits(zones, x, y, 3, 3)) continue;
+      r(g, x, y, 1, 1, c1);
+      if (rnd() < 0.35) r(g, x, y + 1, 1, 1, '#4a6b28');
     }
-  }
-  for (let i = 0; i < 90; i++) {
-    const x = Math.floor(rnd() * (W - 20)) + 10, y = Math.floor(rnd() * (H - 20)) + 10;
-    if (hits(zones, x, y - 8, 10, 10)) continue;
-    if (rnd() < 0.55) rock(g, x, y, 0.7 + rnd() * 0.8); else bush(g, x, y);
-  }
-  // wildflowers, village side only
-  for (let i = 0; i < 220; i++) {
-    const x = Math.floor(rnd() * W), y = GATE_Y + Math.floor(rnd() * (H - GATE_Y));
-    if (hits(zones, x, y, 3, 3)) continue;
-    r(g, x, y, 1, 1, ['#f2c14e', '#e8e2d4', '#cf5138', '#b06adf'][Math.floor(rnd() * 4)]);
   }
 
   // --- village clutter ----------------------------------------------------
@@ -246,20 +277,109 @@ function paint(c, g, rnd) {
   // --- lamp posts along the road -----------------------------------------
   for (let y = 690; y < H - 30; y += 62) {
     for (const x of [GATE_X - 17, GATE_X + 14]) {
+      contactShadow(g, x + 1, y + 1, 3, 0.28);
       r(g, x, y - 12, 2, 13, M.wood2.mid);
       r(g, x, y - 12, 1, 13, M.wood2.hi);
       r(g, x - 2, y - 16, 6, 5, M.iron.mid);
       r(g, x - 1, y - 15, 4, 3, '#f6d67a');
+      r(g, x - 1, y - 15, 4, 1, '#fff2c0');
       box(g, x - 2, y - 16, 6, 5, M.iron.out);
     }
   }
 
-  // --- vignette at the very top: the horde's territory --------------------
-  for (let y = 0; y < 60; y++) {
-    g.globalAlpha = 0.5 * (1 - y / 60);
-    r(g, 0, y, W, 1, '#1b1020');
+  // --- the horde's shadow lies over the far north ------------------------
+  for (let y = 0; y < 80; y++) {
+    g.globalAlpha = 0.46 * (1 - y / 80);
+    r(g, -PAD, y, W + PAD * 2, 1, '#1a1024');
+    g.globalAlpha = 1;
   }
-  g.globalAlpha = 1;
-
   return c;
+}
+
+// ---------------------------------------------------------------------------
+// Flanking rock. Filled band + several crest lines with snow and cast shadow,
+// which reads as a range rather than the flat gradient a single ridge gives.
+// ---------------------------------------------------------------------------
+// Crest geometry, shared by the ImageData pass and the detail pass below.
+function mountainProfile() {
+  const depth = Math.ceil((PAD + 30) / 40);
+  const crestOf = (side, y, k) => {
+    const ph = side === 'L' ? 0 : 3.1;
+    return 27 - k * 40
+      + Math.sin(y * 0.020 + ph + k * 1.7) * (9 + k * 6)
+      + Math.sin(y * 0.047 + ph * 2 + k * 2.3) * (4 + k * 2)
+      + Math.sin(y * 0.009 + ph * 0.7 + k) * 7;
+  };
+  const cache = new Map();
+  const row = (side, y) => {
+    const key = side + ':' + y;
+    let hit = cache.get(key);
+    if (hit) return hit;
+    const cs = [];
+    for (let k = 0; k < depth; k++) cs.push(crestOf(side, y, k));
+    const e = Math.max(6, Math.round(cs[0]));
+    const L = side === 'L';
+    hit = {
+      edge: e, cs, depth,
+      // 0..1 lightness: bright along each ridge, dark in the troughs between.
+      shadeAt(i) {
+        let k = 0;
+        while (k < depth - 1 && cs[k + 1] > i) k++;
+        const hi = cs[k], lo = k + 1 < depth ? cs[k + 1] : hi - 40;
+        const u = Math.max(0, Math.min(1, (i - lo) / Math.max(1, hi - lo)));
+        const ridgeLit = 1 - Math.sin(u * Math.PI);
+        const near = (i + PAD) / (e + PAD);
+        const lean = L ? u * 0.16 : (1 - u) * 0.16;
+        return 0.16 + ridgeLit * 0.46 + near * 0.13 + lean;
+      },
+    };
+    cache.set(key, hit);
+    return hit;
+  };
+  row.crestOf = crestOf;
+  row.depth = depth;
+  return row;
+}
+
+// Highlights, snow, talus and vegetation drawn over the rock body.
+function mountains(g, rnd, side) {
+  const W = WORLD.W, H = WORLD.H;
+  const L = side === 'L';
+  const prof = mountainProfile();
+  const xAt = (v) => (L ? v : W - 1 - v);
+  const HAZE = '#8d97a8';
+
+  for (let y = 0; y < H; y++) {
+    const row = prof(side, y);
+    const e = row.edge;
+    for (let k = 0; k < row.depth; k++) {
+      const cx = Math.round(row.cs[k]);
+      if (cx < -PAD + 1 || cx > e) continue;
+      const peak = row.cs[k] - Math.max(prof.crestOf(side, y - 9, k), prof.crestOf(side, y + 9, k));
+      const haze = Math.min(0.55, k * 0.13);
+      r(g, xAt(cx), y, 1, 1, mixHex('#ddd9cc', HAZE, haze));
+      r(g, xAt(cx + (L ? 1 : -1)), y, 1, 1, mixHex('#3d3c37', HAZE, haze));
+      if (peak > 0.35) {
+        const cap = Math.min(5, 2 + k);
+        for (let sIdx = 0; sIdx < cap; sIdx++) {
+          r(g, xAt(cx - (L ? sIdx : -sIdx)), y, 1, 1,
+            mixHex(sIdx === 0 ? '#f6f4ee' : sIdx < 3 ? '#e2dfd5' : '#c8c5ba', HAZE, haze));
+        }
+      }
+    }
+    if (rnd() < 0.10) r(g, xAt(e), y, L ? 2 : -2, 1, '#6b675e');
+    g.globalAlpha = 0.32;
+    r(g, xAt(e), y, L ? 4 : -4, 1, '#22301a');
+    g.globalAlpha = 0.17;
+    r(g, xAt(e + (L ? 4 : -4)), y, L ? 3 : -3, 1, '#22301a');
+    g.globalAlpha = 1;
+  }
+
+  for (let i = 0; i < 70; i++) {
+    const y = Math.floor(rnd() * H);
+    const v = prof(side, y).edge - 1 - Math.floor(rnd() * 26);
+    if (v < -PAD + 8) continue;
+    if (rnd() < 0.45) rock(g, xAt(v) - 3, y, 0.6 + rnd() * 0.7);
+    else treePine(g, xAt(v) - 5, y, 0.5 + rnd() * 0.3, rnd);
+  }
 }

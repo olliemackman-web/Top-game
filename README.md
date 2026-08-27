@@ -29,8 +29,14 @@ The repo also ships a GitHub Pages workflow. To get a public URL, go to
 
 ## How it plays
 
-The valley scrolls vertically. Drag the map, use the wheel, press `W`/`S` or the
-arrow keys, or hit `Space` to snap between the village and the front line.
+**Drag** to pan. **Wheel** zooms toward the cursor, **pinch** does the same on a
+touchscreen, and `+` / `−` / `0` zoom in, out and back to default. `WASD` and the
+arrow keys pan, `Shift`+wheel scrolls without zooming, and `Space` snaps between
+the village and the front line.
+
+| Zoomed out — the whole valley | Zoomed in — the front line |
+|---|---|
+| ![zoomed out](docs/zoomed-out.png) | ![the front line](docs/battle.png) |
 
 **Buildings have unlimited levels and rebuild their architecture every 5 levels.**
 A thatched timber hut becomes a stone hall, then a tiled and bannered one, then a
@@ -62,8 +68,6 @@ then pick up a mild exponential tail — troop power compounds with building lev
 so without that an optimal player would simply never lose again. Your population
 is also capped at 160, which is what eventually lets the horde outgrow you. An
 Ogre joins every fifth wave, and a second one every 25 waves after that.
-
-![the front line](docs/battle.png)
 
 Progress saves to `localStorage` automatically. Resources accrue while you are
 away (capped at 8 hours), but waves only run while you are watching.
@@ -104,9 +108,18 @@ src/
   roofs, windows and trim from `prims.js`. That is what makes five visual tiers
   per building affordable — and why adding a sixth is a couple of `if (t >= 6)`
   lines rather than a new asset.
-- Rendering happens on a fixed **400 px logical grid** scaled up with smoothing
-  off. The logical *height* follows the window aspect, so the picture always
-  fills the screen. One unit in draw code is one chunky pixel on screen.
+- Rendering happens on a **400 px logical grid at zoom 1**, scaled up with
+  smoothing off. Zooming changes the logical width (`BASE_W / zoom`) rather than
+  scaling the output, so pixels stay crisp at every level. The logical *height*
+  follows the window aspect, so the picture always fills the screen.
+- `applyViewport()` resizes the canvas **and** recomputes `VP` together. They
+  must stay in lockstep — drawing at a size the backing store does not have
+  leaves the previous frame visible around the edges.
+- Terrain is generated once into a canvas padded by `TERRAIN_PAD` each side, so
+  zooming out past the valley shows more mountain instead of blank canvas.
+- The ground and the flanking rock are painted in a single `putImageData` pass
+  off precomputed colour tables. Per-pixel `fillRect` with hex-string mixing
+  cost seconds; this is ~50ms.
 - Building sprites are cached per `(id, tier)` and invalidated on upgrade;
   animated bits (forge glow, chimney smoke, the mage tower's orb) are drawn live
   on top in `buildingFx`.
@@ -126,5 +139,8 @@ src/
   wave 78 and tier IV at 70 minutes, holding 60fps with 110+ troops on screen.
 - Troops have no formation or targeting orders; positioning is emergent.
 - No audio.
+- The Google Font is loaded non-blocking on purpose (`media="print"` then
+  swapped on load). A hanging stylesheet also delays deferred module scripts —
+  that cost 13 seconds of startup on a network that could not reach Google.
 - Enemy variety stops at five types; the wave table in `config.js` is where more
   would go.

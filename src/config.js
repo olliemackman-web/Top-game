@@ -4,8 +4,15 @@
 
 // Logical pixel grid. The canvas is scaled up by an integer factor with
 // smoothing off, so 1 unit here == 1 chunky pixel on screen.
+export const BASE_W = 400;           // logical width at zoom 1
 export const VIEW  = { W: 400, H: 225 };
 export const WORLD = { W: 400, H: 910 };
+
+// Zoom 1 shows the full world width. Below 1 you see past the valley edges, so
+// the terrain is generated with TERRAIN_PAD extra pixels of mountain each side.
+export const ZOOM_MIN = 0.72;
+export const ZOOM_MAX = 3.2;
+export const TERRAIN_PAD = 190;
 
 // World landmarks (y grows downward: 0 = deep enemy territory, 1080 = village rear)
 export const GATE_Y   = 640;   // the palisade line
@@ -14,10 +21,6 @@ export const SPAWN_Y  = -8;    // enemies walk in from off-screen north
 export const RALLY_Y  = 470;   // where idle troops hold the line
 export const HALL_PT  = { x: 200, y: 704 };
 
-export const CAM_MIN = 0;
-export const CAM_MAX = WORLD.H - VIEW.H;
-export const CAM_VILLAGE = CAM_MAX;   // scrolled fully down
-export const CAM_BATTLE  = 0;         // scrolled fully up
 
 // A building rebuilds its look every VIS_STEP levels, up to TIER_MAX looks.
 export const VIS_STEP = 5;

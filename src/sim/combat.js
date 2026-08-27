@@ -165,6 +165,7 @@ export function tickCombat(dt) {
   for (const u of aliveUnits) {
     const st = troopStats(u.type);
     u.cd -= dt; u.flash = Math.max(0, u.flash - dt);
+    if (u.swing > 0) u.swing -= dt;
     u.retarget -= dt;
     if (u.retarget <= 0 || !u.target || u.target.hp <= 0) {
       // mop-up: with nothing left to spawn, hunt the last foes wherever they are
@@ -185,6 +186,7 @@ export function tickCombat(dt) {
     if (inRange) {
       if (u.cd <= 0) {
         u.cd = st.atk;
+        u.swing = 0.22;
         if (st.ranged) shoot(u, u.target, st.dmg, st.splash, u.type === 'mage' ? '#c7a3ff' : '#e8dcb0');
         else { hurt(u.target, st.dmg, 0, 'ally'); fx(u.target.x, u.target.y - 3, '#ffd24a', 'spark', 2); }
       }
@@ -200,9 +202,9 @@ export function tickCombat(dt) {
       if (o === u) continue;
       const ox = u.x - o.x, oy = u.y - o.y;
       const od = ox * ox + oy * oy;
-      if (od < 30 && od > 0.001) {
-        const k = (30 - od) / 30 * 14 * dt;
+      if (od < 64 && od > 0.001) {
         const m = Math.sqrt(od);
+        const k = (8 - m) / 8 * 34 * dt;
         u.x += (ox / m) * k; u.y += (oy / m) * k;
       }
     }
@@ -214,6 +216,7 @@ export function tickCombat(dt) {
   let hallHits = 0;
   for (const f of aliveFoes) {
     f.cd -= dt; f.flash = Math.max(0, f.flash - dt);
+    if (f.swing > 0) f.swing -= dt;
     f.retarget -= dt;
     if (f.retarget <= 0 || !f.target || f.target.hp <= 0) {
       f.target = nearestIn(around(hUnits, f.x, f.y), f.x, f.y, 34) ||
@@ -232,6 +235,7 @@ export function tickCombat(dt) {
     if (f.target && d <= f.st.range) {
       if (f.cd <= 0) {
         f.cd = f.st.atk;
+        f.swing = 0.22;
         if (f.st.ranged) shoot(f, f.target, f.st.dmg, 0, '#b06adf');
         else { hurt(f.target, f.st.dmg, 0, 'foe'); fx(f.target.x, f.target.y - 3, '#e05a3d', 'spark', 2); }
       }
@@ -252,8 +256,9 @@ export function tickCombat(dt) {
       if (o === f) continue;
       const ox = f.x - o.x, oy = f.y - o.y;
       const od = ox * ox + oy * oy;
-      if (od < 30 && od > 0.001) {
-        const k = (30 - od) / 30 * 14 * dt, m = Math.sqrt(od);
+      if (od < 64 && od > 0.001) {
+        const m = Math.sqrt(od);
+        const k = (8 - m) / 8 * 34 * dt;
         f.x += (ox / m) * k; f.y += (oy / m) * k;
       }
     }

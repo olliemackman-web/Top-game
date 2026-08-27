@@ -22,8 +22,8 @@ export function spawnTroop(type, x, y) {
     id: uid++, side: 'ally', type,
     x, y, hp: st.hp, max: st.hp,
     cd: Math.random() * 0.4, target: null, retarget: 0,
-    lane: (Math.random() - 0.5) * 130,   // preferred column on the field
-    rally: (Math.random() - 0.5) * 52,   // depth within the formation
+    lane: (Math.random() - 0.5) * 300,   // preferred column on the field
+    rally: (Math.random() - 0.5) * 120,  // depth within the formation
     frame: 0, anim: Math.random(), face: false, flash: 0,
   });
 }

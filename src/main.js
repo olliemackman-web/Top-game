@@ -1,13 +1,13 @@
 import { TICK_MAX, INTERMISSION, WORLD } from './config.js';
 import { S, load, save, hallMax, logLine } from './state.js';
-import { initArt, resize, draw, camMax, VP } from './render.js';
+import { initArt, resize, draw, camMax, clampCam, VP } from './render.js';
 import { tickEconomy } from './sim/economy.js';
 import { tickCombat, clearField, hooks } from './sim/combat.js';
 import { tickVillage, initVillage } from './sim/village.js';
 import { wireInput } from './input.js';
 import {
   wireUi, updateHud, toast, selectBuilding, closeBuilding, closeSheet,
-  getSelected, showDefeat, showOffline, setJumpLabel, tryUpgrade,
+  getSelected, showDefeat, showOffline, tryUpgrade,
 } from './ui.js';
 
 const canvas = document.getElementById('game');
@@ -19,21 +19,18 @@ if (!S.hallHp) S.hallHp = hallMax();
 
 initVillage();
 
-const cam = { y: camMax(), target: null };
+const cam = { x: 0, y: camMax(), target: null };
 let hover = null;
 let paused = false;
 let time = 0;
 
 // ---------------------------------------------------------------------------
 const api = {
-  goVillage() { cam.target = camMax(); setJumpLabel(true); },
-  goBattle()  { cam.target = 0;        setJumpLabel(false); },
-  toggleView() {
-    if (cam.y > camMax() * 0.5) api.goBattle(); else api.goVillage();
-  },
+  goVillage() { cam.target = camMax(); },
+  goBattle()  { cam.target = 0; },
+  toggleView() { if (cam.y > camMax() * 0.5) api.goBattle(); else api.goVillage(); },
 };
 wireUi(api);
-setJumpLabel(true);
 
 const tickInput = wireInput(canvas, cam, {
   onTap(id) {
@@ -47,7 +44,7 @@ const tickInput = wireInput(canvas, cam, {
 
 window.addEventListener('resize', () => {
   g = resize(canvas);
-  cam.y = Math.min(cam.y, camMax());
+  clampCam(cam);
 });
 
 // ---------------------------------------------------------------------------
@@ -85,7 +82,7 @@ if (!S.seenIntro) {
 
 // Debug handle — also handy for anyone poking at the game in devtools.
 window.IV = {
-  S, cam, api, save, camMax, upgrade: (id) => tryUpgrade(id, true),
+  S, cam, api, save, camMax, VP, upgrade: (id) => tryUpgrade(id, true),
   // Fast-forward the simulation in fixed steps (debugging / balance checks).
   ff(seconds, step = 0.05) {
     for (let t = 0; t < seconds; t += step) {
@@ -113,7 +110,7 @@ function frame(now) {
     if (saveT > 10) { saveT = 0; save(); }
   }
 
-  draw(g, cam.y, time, getSelected(), hover);
+  draw(g, cam, time, getSelected(), hover);
   updateHud(dt);
 
   requestAnimationFrame(frame);

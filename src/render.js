@@ -1,11 +1,35 @@
-import { WORLD, BUILDINGS, BY_ID, GATE_Y, FOES } from './config.js';
+import { WORLD, BUILDINGS, BY_ID, GATE_Y, FOES, BASE_W, ZOOM_MIN, ZOOM_MAX, TERRAIN_PAD } from './config.js';
 import { S, lvl, tier, hallMax, upgradeBlock, reqMet } from './state.js';
 import { buildTerrain } from './art/terrain.js';
 import { buildingSprite, buildingFx } from './art/buildings.js';
 import { unitSprite, unitSize } from './art/units.js';
-import { r, box, M } from './art/prims.js';
+import { r, box, M, contactShadow } from './art/prims.js';
 
-export const VP = { w: 400, h: 225, scale: 1 };
+export const VP = { w: BASE_W, h: 225, zoom: 1 };
+
+let canvasRef = null;
+
+export function setZoom(z) {
+  VP.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+  applyViewport();
+}
+
+// Recomputes the logical viewport AND resizes the canvas to match. These must
+// stay in lockstep: drawing at a size the backing store does not have leaves
+// the previous frame visible around the edges.
+function applyViewport() {
+  const cw = Math.max(1, window.innerWidth), ch = Math.max(1, window.innerHeight);
+  VP.w = Math.round(BASE_W / VP.zoom / 2) * 2;      // even, to halve resize churn
+  VP.h = Math.max(120, Math.round(VP.w * ch / cw));
+  if (canvasRef && (canvasRef.width !== VP.w || canvasRef.height !== VP.h)) {
+    canvasRef.width = VP.w;
+    canvasRef.height = VP.h;
+    canvasRef.style.width = cw + 'px';
+    canvasRef.style.height = ch + 'px';
+    // resizing a canvas resets its context state, so restore what we rely on
+    canvasRef.getContext('2d').imageSmoothingEnabled = false;
+  }
+}
 
 let terrain = null;
 export function initArt() { terrain = buildTerrain(); }
@@ -13,33 +37,42 @@ export function initArt() { terrain = buildTerrain(); }
 // Fit the canvas: fixed logical width, height follows the window's aspect so
 // the picture always fills the screen without letterboxing.
 export function resize(canvas) {
-  const cw = window.innerWidth, ch = window.innerHeight;
-  VP.scale = Math.max(1, cw / VP.w);
-  VP.h = Math.max(150, Math.min(WORLD.H, Math.round(VP.w * ch / cw)));
-  canvas.width = VP.w;
-  canvas.height = VP.h;
-  canvas.style.width = cw + 'px';
-  canvas.style.height = ch + 'px';
+  canvasRef = canvas;
+  canvas.width = 0;              // force applyViewport to do the resize
+  applyViewport();
   const g = canvas.getContext('2d');
   g.imageSmoothingEnabled = false;
   return g;
 }
 
-export const camMax = () => Math.max(0, WORLD.H - VP.h);
+// Camera limits depend on zoom: once the viewport is wider than the valley the
+// camera locks to centre and you see the padded mountains instead of void.
+export const camMaxY = () => Math.max(0, WORLD.H - VP.h);
+export const camMax = camMaxY;
+export const camMinX = () => (VP.w >= WORLD.W ? (WORLD.W - VP.w) / 2 : 0);
+export const camMaxX = () => (VP.w >= WORLD.W ? (WORLD.W - VP.w) / 2 : WORLD.W - VP.w);
 
-// Screen position of a world point (before shake).
-export const toScreen = (x, y, cam) => ({ x, y: y - cam });
+export function clampCam(cam) {
+  cam.y = Math.max(0, Math.min(camMaxY(), cam.y));
+  cam.x = Math.max(camMinX(), Math.min(camMaxX(), cam.x));
+  return cam;
+}
 
 // ---------------------------------------------------------------------------
 export function draw(g, cam, time, sel, hover) {
+  const left = cam.x;
   const sh = S.shake ? (Math.random() - 0.5) * S.shake * 2 : 0;
   g.save();
   g.translate(0, Math.round(sh));
 
   // --- terrain ------------------------------------------------------------
-  const top = Math.max(0, Math.min(WORLD.H - VP.h, Math.round(cam)));
+  const top = Math.max(0, Math.min(Math.max(0, WORLD.H - VP.h), Math.round(cam.y)));
   g.clearRect(0, -4, VP.w, VP.h + 8);
-  if (terrain) g.drawImage(terrain, 0, top, VP.w, VP.h, 0, 0, VP.w, VP.h);
+  if (terrain) {
+    g.drawImage(terrain, Math.round(left) + TERRAIN_PAD, top, VP.w, VP.h, 0, 0, VP.w, VP.h);
+  }
+  g.save();
+  g.translate(-Math.round(left), 0);
 
   // --- depth-sorted world layer ------------------------------------------
   const items = [];
@@ -86,7 +119,8 @@ export function draw(g, cam, time, sel, hover) {
     g.globalAlpha = 1;
   }
 
-  g.restore();
+  g.restore();   // camera x offset
+  g.restore();   // camera shake
 
   // --- off-screen battle marker ------------------------------------------
   if (S.foes.length) {
@@ -169,15 +203,19 @@ function drawBuilding(g, b, top, time, sel, hover) {
 function drawCivilian(g, c, top) {
   const spr = unitSprite(c.type, Math.floor(c.anim * 2) % 2, c.face);
   const [w, h] = unitSize(c.type);
+  contactShadow(g, c.x, c.y - top + 1, Math.max(2, Math.round(w * 0.3)), 0.22);
   g.drawImage(spr, Math.round(c.x - w / 2), Math.round(c.y - top - h + 2));
 }
 
 function drawUnit(g, u, top) {
   const y = u.y - top;
-  const frame = (Math.floor(u.anim * 2) % 2);
+  const frame = u.swing > 0 ? 2 : (Math.floor(u.anim * 2) % 2);
   const spr = unitSprite(u.type, frame, u.face);
   const [w, h] = unitSize(u.type);
   const x = Math.round(u.x - w / 2), yy = Math.round(y - h + 2);
+
+  contactShadow(g, u.x, y + 1, Math.max(2, Math.round(w * 0.32)),
+                FOES[u.type]?.boss ? 0.34 : 0.24);
 
   if (u.flash > 0) {
     g.save();
@@ -219,10 +257,10 @@ export function drawBuildingIcon(ctx, id, t, size) {
 
 // Which building is under a screen point?
 export function pick(sx, sy, cam) {
+  const wx = sx + cam.x, wy = sy + cam.y;
   for (let i = BUILDINGS.length - 1; i >= 0; i--) {
     const b = BUILDINGS[i];
-    const y = b.y - cam;
-    if (sx >= b.x - 2 && sx <= b.x + b.w + 2 && sy >= y - 4 && sy <= y + b.h + 2) return b.id;
+    if (wx >= b.x - 2 && wx <= b.x + b.w + 2 && wy >= b.y - 6 && wy <= b.y + b.h + 2) return b.id;
   }
   return null;
 }

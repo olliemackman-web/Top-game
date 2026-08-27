@@ -248,3 +248,122 @@ export function fenceRun(g, x, y, w) {
   r(g, x, y - 3, w, 1, M.wood2.lo);
   for (let i = x; i < x + w; i += 8) fencePost(g, i, y);
 }
+
+// ---------------------------------------------------------------------------
+// Value noise — smooth, seeded, tileable-enough for terrain patches.
+// ---------------------------------------------------------------------------
+// Backed by a flat Float32Array over a known domain. A Map keyed by "i,j"
+// strings is ~20x slower and this is called once per terrain pixel.
+export function makeNoise(rnd, cell, w = 512, h = 512, ox = 0, oy = 0) {
+  const gw = Math.max(4, Math.ceil(w / cell) + 3), gh = Math.max(4, Math.ceil(h / cell) + 3);
+  const grid = new Float32Array(gw * gh);
+  for (let i = 0; i < grid.length; i++) grid[i] = rnd();
+  const smooth = (t) => t * t * (3 - 2 * t);
+  return (x, y) => {
+    const fx = (x + ox) / cell, fy = (y + oy) / cell;
+    const bx = Math.floor(fx), by = Math.floor(fy);
+    const tx = smooth(fx - bx), ty = smooth(fy - by);
+    let i = bx, j = by;
+    if (i < 0) i = 0; else if (i > gw - 2) i = gw - 2;
+    if (j < 0) j = 0; else if (j > gh - 2) j = gh - 2;
+    const o = j * gw + i;
+    const a = grid[o], b = grid[o + 1], c = grid[o + gw], d = grid[o + gw + 1];
+    const top = a + (b - a) * tx;
+    return top + ((c + (d - c) * tx) - top) * ty;
+  };
+}
+
+// Numeric form of the colour helpers, for direct ImageData writes.
+export const rgbOf = (hex) => [parseInt(hex.slice(1, 3), 16),
+                               parseInt(hex.slice(3, 5), 16),
+                               parseInt(hex.slice(5, 7), 16)];
+
+// Colour helpers used by the terrain painter.
+const HEX = (s) => [parseInt(s.slice(1, 3), 16), parseInt(s.slice(3, 5), 16), parseInt(s.slice(5, 7), 16)];
+export const mixHex = (a, b, t) => {
+  const A = HEX(a), B = HEX(b);
+  return '#' + A.map((v, i) => Math.round(v + (B[i] - v) * Math.max(0, Math.min(1, t)))
+    .toString(16).padStart(2, '0')).join('');
+};
+// Pick from an ordered colour ramp by a 0..1 value.
+export const ramp = (stops, t) => {
+  const safe = Number.isFinite(t) ? t : 0;
+  const x = Math.max(0, Math.min(0.9999, safe)) * (stops.length - 1);
+  const i = Math.floor(x);
+  return mixHex(stops[i], stops[i + 1], x - i);
+};
+
+// A soft contact shadow. Pixel-art friendly: stepped, not a gradient blob.
+export function contactShadow(g, cx, y, rx, alpha = 0.26) {
+  g.globalAlpha = alpha;
+  r(g, cx - rx, y - 1, rx * 2, 2, '#1b2410');
+  g.globalAlpha = alpha * 0.65;
+  r(g, cx - rx - 1, y, rx * 2 + 2, 1, '#1b2410');
+  g.globalAlpha = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Trees. Three species so a wood does not read as stamped clones.
+// ---------------------------------------------------------------------------
+const LEAF = {
+  pine:  ['#2f4a1f', '#3d6127', '#4d7833', '#63954a'],
+  oak:   ['#39501f', '#4a6b28', '#5d8434', '#77a44a'],
+  birch: ['#465b24', '#5a7530', '#6f8f3d', '#8bad55'],
+};
+
+export function treePine(g, x, y, s = 1, rnd = Math.random) {
+  const h = Math.round(17 * s), w = Math.round(12 * s);
+  const P = LEAF.pine;
+  contactShadow(g, x + w / 2, y, Math.round(w * 0.42));
+  r(g, x + Math.round(w / 2) - 1, y - 4, 2, 4, '#4a3320');
+  for (let layer = 0; layer < 4; layer++) {
+    const ly = y - 3 - Math.round(layer * h * 0.21);
+    const lw = Math.round(w * (1 - layer * 0.19));
+    const lh = Math.max(3, Math.round(h * 0.32));
+    for (let i = 0; i < lh; i++) {
+      const hw = Math.max(1, Math.round(((i + 1) / lh) * (lw / 2)));
+      const cx = x + Math.round(w / 2);
+      // lit on the left, shaded on the right
+      for (let k = -hw; k < hw; k++) {
+        const t = (k + hw) / (hw * 2);
+        r(g, cx + k, ly - lh + i, 1, 1, P[i < 1 ? 3 : (t < 0.3 ? 2 : t > 0.78 ? 0 : 1)]);
+      }
+    }
+  }
+  r(g, x + Math.round(w * 0.3), y - h - 2, 1, 2, P[3]);
+}
+
+export function treeOak(g, x, y, s = 1) {
+  const w = Math.round(15 * s), h = Math.round(14 * s);
+  const P = LEAF.oak;
+  contactShadow(g, x + w / 2, y, Math.round(w * 0.45));
+  r(g, x + Math.round(w / 2) - 1, y - 5, 3, 5, '#5b3a1b');
+  r(g, x + Math.round(w / 2) - 1, y - 5, 1, 5, '#77522a');
+  const cx = x + w / 2, cy = y - 5 - h * 0.42;
+  // three overlapping lobes make a believable canopy
+  const lobes = [[0, -h * 0.30, w * 0.40], [-w * 0.28, -h * 0.06, w * 0.34], [w * 0.28, -h * 0.04, w * 0.32]];
+  for (const [ox, oy, rr] of lobes) {
+    for (let dy = -rr; dy <= rr; dy++) {
+      const half = Math.round(Math.sqrt(Math.max(0, rr * rr - dy * dy)));
+      for (let dx = -half; dx <= half; dx++) {
+        // light from the upper-left, plus a rim of dark at the silhouette edge
+        const edge = Math.sqrt(dx * dx + dy * dy) / rr;
+        const lit = (dx + rr) / (rr * 2) * 0.45 + (dy + rr) / (rr * 2) * 0.55;
+        const t = lit + (edge > 0.86 ? 0.35 : 0);
+        r(g, Math.round(cx + ox + dx), Math.round(cy + oy + dy), 1, 1,
+          P[t < 0.20 ? 3 : t < 0.46 ? 2 : t < 0.82 ? 1 : 0]);
+      }
+    }
+  }
+}
+
+export function treeDead(g, x, y, s = 1) {
+  const h = Math.round(13 * s);
+  contactShadow(g, x + 2, y, 3, 0.2);
+  r(g, x + 1, y - h, 2, h, '#3f3226');
+  r(g, x + 1, y - h, 1, h, '#544433');
+  r(g, x - 2, y - Math.round(h * 0.72), 3, 1, '#3f3226');
+  r(g, x + 3, y - Math.round(h * 0.86), 3, 1, '#3f3226');
+  r(g, x - 3, y - Math.round(h * 0.8), 1, 2, '#3f3226');
+  r(g, x + 5, y - Math.round(h * 0.95), 1, 3, '#3f3226');
+}

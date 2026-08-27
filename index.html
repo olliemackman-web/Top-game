@@ -7,7 +7,11 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%232c1d12'/%3E%3Cpath d='M3 9h10v5H3z' fill='%238d8a7e'/%3E%3Cpath d='M2 9l6-5 6 5z' fill='%2390392a'/%3E%3Crect x='7' y='11' width='2' height='3' fill='%235b3a1b'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<!-- Loaded non-blocking: a stylesheet that hangs also delays deferred module
+     scripts, which stalled first paint by ~13s on a network that cannot reach
+     Google Fonts. The stack below it renders fine on its own. -->
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;600;700&display=swap"
+      rel="stylesheet" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -44,9 +48,6 @@
     <div class="row"><i class="ic skull"></i><span id="s-foes">Foes 0</span></div>
     <div class="bar foe"><i id="s-foe-bar"></i></div>
   </div>
-
-  <!-- scroll affordance -->
-  <button id="jump" class="jumpbtn">▲<span>Battlefield</span></button>
 
   <!-- building upgrade sheet -->
   <div id="buildpanel" class="panel sheet hidden">
